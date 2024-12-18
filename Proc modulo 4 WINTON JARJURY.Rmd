@@ -1,0 +1,269 @@
+---
+title: "Proyecto_modulo 4.  "
+author: "Ing Winston Jarjury"
+date: "2024-12-18"
+output: github_document
+---
+
+```{r,warning=FALSE,message=FALSE}
+library(openxlsx)
+library(foreign)
+library(forecast)
+library(gmodels)
+library(lmtest)
+library(ResourceSelection)
+library(ROCR)
+library(memisc)
+library(QuantPsyc)
+library(Epi)
+library(reshape2)
+library(gridExtra)
+library(ggplot2)
+library(plotly)
+
+```
+
+
+
+```{r}
+db=read.csv("C:\\Users\\Winston\\Downloads\\Base-y-presentacion_4681YE (1)\\Base y presentación\\germancredit.csv")
+
+#Eliminamos las columnas de variables cualitativas
+db=db[sapply(db, is.numeric)]
+attach(db)
+names(db)
+```
+
+
+
+```{r}
+#Generamos nuestros modelos iniciales
+
+logit=glm(Default~.,
+          family = binomial(logit),
+          data=db)
+
+probit=glm(Default~.,
+          family = binomial(probit),
+          data=db)
+```
+
+
+```{r}
+memisc::mtable(logit,probit,digits = 6,sdigits = 6)
+
+
+exp(coefficients(logit))
+
+exp(coefficients(probit))
+```
+
+
+
+```{r}
+#--------Prueba de bondad de ajuste--------#
+
+realizar_test_hoslem <- function(modelo, datos, g = 10) { 
+  resultado <- hoslem.test(datos$Default, fitted(modelo), g = g) 
+  cat("Modelo:", deparse(substitute(modelo)), "\n") 
+  cat("Hipótesis Nula (H0): El modelo se ajusta bien a los datos observados.\n") 
+  cat("Hipótesis Alternativa (H1): El modelo no se ajusta bien a los datos observados.\n") 
+  cat("Valor p del test de Hosmer-Lemeshow:", resultado$p.value, "\n") 
+  if (resultado$p.value < 0.05) { 
+    cat("Conclusión: Rechazamos la hipótesis nula. El modelo no se ajusta bien a los datos.\n") } 
+  else { cat("Conclusión: No rechazamos la hipótesis nula. El modelo se ajusta bien a los datos.\n") } 
+  cat("\n") }
+
+```
+
+
+
+```{r}
+realizar_test_hoslem(logit,db)
+realizar_test_hoslem(probit,db)
+
+```
+
+
+
+```{r}
+threshold=mean(fitted(logit))
+thresholdp=mean(fitted(probit))
+
+threshold
+thresholdp
+```
+
+
+
+```{r}
+#Tabla de clasificación
+
+
+ClassLog(logit,db$Default,cut = threshold)
+
+ClassLog(probit,db$Default,cut = thresholdp)
+
+#El logit clasifica adecuadamente el 60,50%
+#Mientras que el probit clasifica 61,10%
+```
+
+
+
+
+```{r}
+threshold=0.80
+
+
+ClassLog(logit,db$Default,cut = threshold)
+
+ClassLog(probit,db$Default,cut = threshold)
+```
+
+
+
+
+
+```{r}
+#------Evaluamos la capacidad de los otros criterios----------------#
+
+predl=prediction(logit$fitted.values,db$Default)
+
+predp=prediction(probit$fitted.values,db$Default)
+
+
+perfl=performance(
+  predl,measure = "tpr",x.measure = "fpr"
+)
+
+perfp=performance(
+  predp,measure = "tpr",x.measure = "fpr"
+)
+
+
+plot(perfl,colorize=T,lty=3)
+abline(0,1,col="black")
+
+
+
+plot(perfp,colorize=T,lty=3)
+abline(0,1,col="black")
+
+
+aucl=performance(predl,measure = "auc")
+
+aucl=aucl@y.values[[1]]
+aucl
+
+aucp=performance(predp,measure = "auc")
+
+aucp=aucp@y.values[[1]]
+aucp
+```
+
+
+
+```{r}
+#Encontrando el punto de corte optimo logit
+
+ROC(form=Default~duration+amount+installment+residence+age+cards+liable,plot="sp")
+```
+
+
+
+```{r}
+#----para el probit------#
+
+perf1=performance(predp,"sens","spec")
+
+
+sen=slot(perf1,"y.values")[[1]]
+esp=slot(perf1,"x.values")[[1]]
+alf=slot(perf1,"alpha.values")[[1]]
+
+mat=data.frame(alf,sen,esp)
+```
+
+
+
+```{r}
+#logit
+
+perf2=performance(predl,"sens","spec")
+
+
+sen2=slot(perf2,"y.values")[[1]]
+esp2=slot(perf2,"x.values")[[1]]
+
+
+alf2=slot(perf2,"alpha.values")[[1]]
+
+mat2=data.frame(alf2,sen2,esp2)
+```
+
+
+
+
+```{r}
+m=melt(mat,id=c("alf"))
+
+m2=melt(mat2,id=c("alf2"))
+
+p1=ggplot(m,aes(alf,value,group=variable,colour=variable))+
+  geom_line(size=1.2)+
+  labs(title="Punto de corte para el probit")
+
+p1
+
+
+p2=ggplot(m2,aes(alf2,value,group=variable,colour=variable))+
+  geom_line(size=1.2)+
+  labs(title="Punto de corte para el logit")
+
+p2
+
+```
+
+
+
+```{r}
+
+#Probit=0.6133
+#Logit=0.61000
+
+
+
+g1=grid.arrange(p1,p2,ncol=2)
+
+threshold=0.6133
+
+ClassLog(logit,db$Default,cut = threshold)
+
+ClassLog(probit,db$Default,cut = threshold)
+```
+```{r}
+threshold=0.61
+
+
+ClassLog(probit,db$Default,cut = threshold)
+```
+
+
+
+
+```{r}
+newdata=data.frame(
+  duration=36,
+  amount=978,
+  installment=5,
+  residence=4,
+  age=39,
+  cards=2,
+  liable=1)
+
+
+
+predict(logit,newdata,type = "response")
+```
+
+#### Conclusión: Debido a que los resultados obtenidos tanto por el probit y logit son similares, tanto en terminos de significancia, como overall de la matriz de confunsion, punto de corte optimo para el threshold, lo ideal es quedarnos con el modelo que mejor clasifique los 0-0 y 1-1, en este caso es el modelo del probit con un overall del 61,10%
